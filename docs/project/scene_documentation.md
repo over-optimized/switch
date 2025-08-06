@@ -78,6 +78,56 @@ Scenes that provide actual gameplay functionality.
 - Regression testing
 - Continuous integration validation
 
+---
+
+### `/games/switch/scenes/SwitchMain.tscn`
+
+**Purpose**: Main entry scene for standard Switch gameplay
+
+**Script**: `main_switch_game.gd`
+
+**Usage**:
+
+- Launches standard game session for players
+- Handles game setup, turn management, and player actions
+- Integrates with rule configuration and future features (XP, Rep, statistics)
+
+**Structure**:
+
+- **Root Node:** Control
+- **MainMenu (Panel):**
+  - Start Game
+  - Settings
+  - View Rules
+  - Exit
+- **GameArea (Panel):**
+  - PlayerHands (HBoxContainer)
+  - PlayedStack (TextureRect)
+  - Deck (TextureRect)
+  - TurnIndicator (Label)
+  - ActionButtons (HBoxContainer)
+    - Play Card
+    - Draw Card
+    - Announce Switch!
+
+---
+
+### `/games/switch/scenes/main_switch_game.gd`
+
+**Purpose**: Main script for SwitchMain.tscn, handles game setup, UI logic, and player actions.
+
+**Features**:
+
+- Connects menu buttons to game logic
+- Initializes game with default players and deck
+- Updates UI for new game session
+- Prepares hooks for play, draw, and "Switch!" actions
+- Ready for further expansion (settings, rules, XP/Rep, etc.)
+
+**UI Positioning**:
+
+- Initial positions are set in scene file; further adjustments can be made in the editor as needed.
+
 ## Scene Structure Patterns
 
 ### Test Scene Pattern
