@@ -15,6 +15,16 @@ var active_penalty: int = 0
 var run_target_rank: int = 0
 var chosen_suit: Card.Suit = Card.Suit.NONE
 
+# Additional run tracking properties
+var run_sequence: Array[int] = []  # Track the actual sequence played
+var run_started_by: Player = null
+var cards_played_in_current_turn: Array[Card] = []
+
+# Add these properties to track mirror state
+var mirrored_suit: Card.Suit = Card.Suit.NONE
+var mirrored_rank: int = 0
+var is_top_card_mirrored: bool = false
+
 signal suit_choice_required(player: Player, ace_card: Card)
 signal penalty_applied(player: Player, amount: int)
 signal run_started(starting_rank: int)
@@ -92,7 +102,7 @@ func is_valid_move(player: Player, card: Card, game_data: Dictionary) -> bool:
 func _is_card_playable(card: Card, top_card: Card) -> bool:
 	match current_phase:
 		GamePhase.NORMAL:
-			return _is_valid_normal_play(card, top_card)
+			return _is_valid_normal_play_with_mirroring(card, top_card)
 		GamePhase.ACTIVE_TWOS:
 			return _is_valid_during_active_twos(card)
 		GamePhase.ACTIVE_RUN:
@@ -115,6 +125,24 @@ func _is_valid_normal_play(card: Card, top_card: Card) -> bool:
 	# Normal matching: suit or rank
 	return card.matches_suit(top_card) or card.matches_rank(top_card)
 
+## Normal play validation with mirroring support
+func _is_valid_normal_play_with_mirroring(card: Card, top_card: Card) -> bool:
+	# Universal cards (can be played on anything when not active trick)
+	if _is_universal_card(card):
+		return true
+
+	# Special case: 5♥ can be played on any 5 or any ♥
+	if _is_five_of_hearts(card):
+		var effective_rank = get_effective_rank()
+		var effective_suit = get_effective_suit()
+		return effective_rank == 5 or effective_suit == Card.Suit.HEARTS
+
+	# Normal matching using effective rank/suit
+	var effective_rank = get_effective_rank()
+	var effective_suit = get_effective_suit()
+
+	return card.rank == effective_rank or card.suit == effective_suit
+
 ## Check if card is universal (Ace, 7)
 func _is_universal_card(card: Card) -> bool:
 	return card.rank == 1 or card.rank == 7  # Ace or 7
@@ -123,10 +151,22 @@ func _is_universal_card(card: Card) -> bool:
 func _is_valid_during_active_twos(card: Card) -> bool:
 	return card.rank == 2 or _is_two_of_hearts(card)  # Any 2 or 2♥ (which counters 5♥)
 
-## Active run validation
+## Active run validation with complete sequence checking
 func _is_valid_during_run(card: Card) -> bool:
-	# Must be current rank or next sequential rank
-	return card.rank == run_target_rank or card.rank == run_target_rank + 1
+	# Special case: Aces can only be played on King or other Aces during runs
+	if card.rank == 1:  # Ace
+		return run_target_rank == 13 or run_target_rank == 1  # King or Ace
+
+	# Normal run rules: current rank or next sequential rank
+	var valid_ranks = [run_target_rank]
+
+	# Add next sequential rank if not at end of sequence
+	if run_target_rank < 13:  # Not King
+		valid_ranks.append(run_target_rank + 1)
+	elif run_target_rank == 13:  # King
+		valid_ranks.append(1)  # King -> Ace
+
+	return card.rank in valid_ranks
 
 ## Active 5♥ validation
 func _is_valid_during_five_hearts(card: Card) -> bool:
@@ -137,6 +177,16 @@ func apply_move(player: Player, card: Card, game_data: Dictionary) -> Dictionary
 	if not player or not card:
 		push_error("Invalid player or card in apply_move")
 		return game_data
+
+	# Reset mirror state if playing non-7 card
+	if card.rank != 7:
+		is_top_card_mirrored = false
+		mirrored_rank = 0
+		mirrored_suit = Card.Suit.NONE
+
+	# Reset Ace chosen suit if playing non-Ace card
+	if card.rank != 1:
+		chosen_suit = Card.Suit.NONE
 
 	played_cards_stack.append(card)
 
@@ -198,7 +248,13 @@ func _handle_two(card: Card, player: Player) -> void:
 func _handle_three(card: Card, player: Player) -> void:
 	current_phase = GamePhase.ACTIVE_RUN
 	run_target_rank = 3
+	run_sequence = [3]
+	run_started_by = player
+	cards_played_in_current_turn.clear()
+	cards_played_in_current_turn.append(card)
+
 	run_started.emit(3)
+	print("RUN STARTED: %s started run with %s" % [player.name, card.name])
 
 ## Handle 5♥ effects
 func _handle_five_of_hearts(card: Card, player: Player) -> void:
@@ -213,10 +269,86 @@ func _handle_five_of_hearts(card: Card, player: Player) -> void:
 
 ## Handle 7 effects (mirror)
 func _handle_seven(card: Card, player: Player) -> void:
-	var previous_card = _get_previous_card()
-	if previous_card:
-		# Mirror the rank and suit (not the effect)
-		chosen_suit = previous_card.suit
+	var target_card = _get_card_to_mirror()
+
+	if target_card:
+		# Mirror the target card's rank and suit
+		mirrored_rank = target_card.rank
+		mirrored_suit = target_card.suit
+		is_top_card_mirrored = true
+
+		print("7 MIRROR: %s mirrors %s (becomes %d%s)" % [
+			card.name,
+			target_card.name,
+			mirrored_rank,
+			_get_suit_symbol(mirrored_suit)
+		])
+	else:
+		push_warning("7 played but no card to mirror")
+		# Fallback - 7 just becomes itself
+		mirrored_rank = 7
+		mirrored_suit = card.suit
+		is_top_card_mirrored = false
+
+## Get the card that 7 should mirror
+func _get_card_to_mirror() -> Card:
+	# Mirror the card that was played before the 7
+	# Skip over any other 7s to find the original card
+
+	for i in range(played_cards_stack.size() - 2, -1, -1):  # Start from second-to-last
+		var card = played_cards_stack[i]
+		if card && card.rank != 7:  # Found non-7 card
+			return card
+
+	# If all previous cards are 7s, mirror the very first card
+	if not played_cards_stack.is_empty():
+		return played_cards_stack[0]
+
+	return null
+
+## Get effective suit for matching (accounts for mirroring and Ace choices)
+func get_effective_suit() -> Card.Suit:
+	var top_card = get_active_top_card()
+	if not top_card:
+		return Card.Suit.NONE
+
+	# Check if top card is mirrored (7)
+	if is_top_card_mirrored:
+		return mirrored_suit
+
+	# Check if top card is an Ace with chosen suit
+	if top_card.rank == 1 && chosen_suit != Card.Suit.NONE:
+		return chosen_suit
+
+	# Normal card suit
+	return top_card.suit
+
+## Get effective rank for matching (accounts for mirroring)
+func get_effective_rank() -> int:
+	var top_card = get_active_top_card()
+	if not top_card:
+		return 0
+
+	# Check if top card is mirrored (7)
+	if is_top_card_mirrored:
+		return mirrored_rank
+
+	# Normal card rank
+	return top_card.rank
+
+## Helper function to get suit symbol for display
+func _get_suit_symbol(suit: Card.Suit) -> String:
+	match suit:
+		Card.Suit.HEARTS:
+			return "♥"
+		Card.Suit.DIAMONDS:
+			return "♦"
+		Card.Suit.CLUBS:
+			return "♣"
+		Card.Suit.SPADES:
+			return "♠"
+		_:
+			return "?"
 
 ## Handle 8 effects (reverse direction)
 func _handle_eight(card: Card, player: Player) -> void:
@@ -229,21 +361,97 @@ func _handle_jack(card: Card, player: Player) -> void:
 	# Jacks will be handled in turn order logic
 	pass
 
-## Handle cards during active run
+## Handle cards during active run (includes sequence tracking)
 func _handle_run_card(card: Card, player: Player) -> void:
+	cards_played_in_current_turn.append(card)
+
 	if card.rank == run_target_rank:
-		# Same rank - continue run
-		pass
-	elif card.rank == run_target_rank + 1:
+		# Same rank - continue run at same level
+		print("RUN CONTINUE: %s played another %d" % [player.name, card.rank])
+
+	elif card.rank == run_target_rank + 1 or (run_target_rank == 13 and card.rank == 1):
 		# Next rank - advance run
+		var old_rank = run_target_rank
 		run_target_rank = card.rank
+		run_sequence.append(card.rank)
+
+		print("RUN ADVANCE: %s advanced from %d to %d" % [player.name, old_rank, card.rank])
 
 		# Check if run has ended (reached Ace)
 		if card.rank == 1:  # Ace ends the run
 			_end_run(true)
+
+	elif card.rank == 1 and run_target_rank in [13, 1]:
+		# Ace on King or Ace (legal)
+		if run_target_rank == 13:  # King -> Ace advances
+			run_target_rank = 1
+			run_sequence.append(1)
+			print("RUN ADVANCE: %s played Ace to end run" % player.name)
+		else:  # Ace -> Ace continues
+			print("RUN CONTINUE: %s played another Ace" % player.name)
+
+		_end_run(true)
+
 	else:
-		# Invalid run card - shouldn't happen if validation worked
-		push_error("Invalid run card played: %s" % card.name)
+		# This should not happen if validation worked correctly
+		push_error("Invalid run card played: %s (target rank: %d)" % [card.name, run_target_rank])
+		_handle_invalid_run_sequence(player, card)
+
+## Handle invalid run sequences with proper penalties
+func _handle_invalid_run_sequence(player: Player, invalid_card: Card) -> void:
+	print("INVALID RUN: %s played %s when %d was required" % [
+		player.name, invalid_card.name, run_target_rank
+	])
+
+	# Calculate penalty: invalid cards + run penalty + 2 stupid cards
+	var cards_to_return = cards_played_in_current_turn.size()
+	var run_penalty = run_target_rank
+	var stupid_penalty = 2
+	var total_penalty = cards_to_return + run_penalty + stupid_penalty
+
+	# Return the invalid cards to player's hand first
+	for card in cards_played_in_current_turn:
+		if played_cards_stack.has(card):
+			played_cards_stack.erase(card)
+			player.hand.add_card(card)
+
+	# Apply additional penalty
+	var additional_penalty = run_penalty + stupid_penalty
+	if not apply_penalty_to_player(player, additional_penalty):
+		push_error("Failed to apply invalid run penalty")
+
+	print("RUN PENALTY: %s returns %d cards and picks up %d more" % [
+		player.name, cards_to_return, additional_penalty
+	])
+
+	# End the run
+	_end_run(false)
+
+## End the current run with proper cleanup
+func _end_run(successful: bool) -> void:
+	var final_rank = run_target_rank
+	var sequence_length = run_sequence.size()
+
+	print("RUN ENDED: %s, final rank %d, sequence length %d" % [
+		"Successfully" if successful else "Failed",
+		final_rank,
+		sequence_length
+	])
+
+	# Reset run state
+	current_phase = GamePhase.NORMAL
+	run_target_rank = 0
+	run_sequence.clear()
+	run_started_by = null
+	cards_played_in_current_turn.clear()
+
+	run_ended.emit(successful)
+
+	# If run failed, top card becomes dead
+	if not successful:
+		var top_card = get_active_top_card()
+		if top_card:
+			print("RUN CLEANUP: %s becomes dead card" % top_card.name)
 
 ## Get the card played before the current top card
 func _get_previous_card() -> Card:
@@ -251,11 +459,99 @@ func _get_previous_card() -> Card:
 		return null
 	return played_cards_stack[played_cards_stack.size() - 2]
 
-## End the current run
-func _end_run(successful: bool) -> void:
-	current_phase = GamePhase.NORMAL
-	run_target_rank = 0
-	run_ended.emit(successful)
+## Get run status information for display
+func get_run_status() -> Dictionary:
+	if current_phase != GamePhase.ACTIVE_RUN:
+		return {"active": false}
+
+	return {
+		"active": true,
+		"current_rank": run_target_rank,
+		"sequence": run_sequence.duplicate(),
+		"started_by": run_started_by.name if run_started_by else "Unknown",
+		"sequence_display": _format_run_sequence(),
+		"next_valid_ranks": _get_next_valid_run_ranks()
+	}
+
+## Format run sequence for display
+func _format_run_sequence() -> String:
+	if run_sequence.is_empty():
+		return ""
+
+	var names = []
+	for rank in run_sequence:
+		names.append(_get_rank_name(rank))
+
+	return " → ".join(names)
+
+## Helper to get rank name for display
+func _get_rank_name(rank: int) -> String:
+	match rank:
+		1: return "A"
+		11: return "J"
+		12: return "Q"
+		13: return "K"
+		_: return str(rank)
+
+## Get valid ranks that can be played next in run
+func _get_next_valid_run_ranks() -> Array[int]:
+	var valid_ranks = [run_target_rank]  # Current rank always valid
+
+	# Add next sequential rank
+	if run_target_rank < 13:  # Not King
+		valid_ranks.append(run_target_rank + 1)
+	elif run_target_rank == 13:  # King
+		valid_ranks.append(1)  # King -> Ace
+
+	return valid_ranks
+
+## Handle multiple cards played in one turn during runs
+func can_play_multiple_cards_in_run(cards: Array[Card]) -> bool:
+	if cards.is_empty():
+		return false
+
+	# All cards must be same rank or valid sequence
+	var first_card = cards[0]
+
+	# Check if all same rank
+	var all_same_rank = true
+	for card in cards:
+		if card.rank != first_card.rank:
+			all_same_rank = false
+			break
+
+	if all_same_rank:
+		# All same rank - check if it's valid for current run
+		return _is_valid_during_run(first_card)
+
+	# Check if it's a valid sequence
+	return _is_valid_run_sequence(cards)
+
+## Validate a sequence of cards for run play
+func _is_valid_run_sequence(cards: Array[Card]) -> bool:
+	if cards.is_empty():
+		return false
+
+	# Sort cards by rank to check sequence
+	var sorted_cards = cards.duplicate()
+	sorted_cards.sort_custom(func(a, b): return a.rank < b.rank)
+
+	# First card must be playable in current run
+	if not _is_valid_during_run(sorted_cards[0]):
+		return false
+
+	# Check sequence is consecutive
+	for i in range(1, sorted_cards.size()):
+		var expected_rank = sorted_cards[i-1].rank + 1
+
+		# Handle King -> Ace transition
+		if sorted_cards[i-1].rank == 13 and sorted_cards[i].rank == 1:
+			continue
+
+		if sorted_cards[i].rank != expected_rank:
+			return false
+
+	return true
 
 ## Choose suit for Ace
 func choose_suit(suit: Card.Suit) -> void:
@@ -284,18 +580,46 @@ func get_turn_order(players: Array[Player], game_data: Dictionary) -> Array[Play
 
 	return ordered_players
 
+## Check if player can finish game on current card
+func can_finish_on_card(player: Player, card: Card) -> bool:
+	# Can't finish on trick card during active run
+	if current_phase == GamePhase.ACTIVE_RUN:
+		return false
+
+	# Can't finish on any trick card (except in special circumstances)
+	if card.get_property("is_trick_card", false):
+		return false
+
+	return true
+
 ## Check if game is over
 func is_game_over(game_data: Dictionary) -> bool:
-	# Game ends when a player has no cards and didn't finish on a trick card
 	for player in get_all_players():
-		if player and not player.has_cards():
-			var last_card = player.get_last_played_card()
-			# Can't finish on trick card during active run
-			if current_phase == GamePhase.ACTIVE_RUN and last_card:
-				# Force pickup of 1 card - use the corrected method name
-				apply_penalty_to_player(player, 1)
-				return false
-			return true
+		if not player or player.has_cards():
+			continue
+
+		# Player has no cards - check if they finished legally
+		var last_card_played = game_data.get("last_played_card")
+		if not last_card_played:
+			continue
+
+		# Check run finish rule
+		if current_phase == GamePhase.ACTIVE_RUN:
+			print("RUN FINISH RULE: %s cannot finish during active run" % player.name)
+			# Force pickup of 1 card
+			apply_penalty_to_player(player, 1)
+			return false
+
+		# Check trick card finish rule
+		if not can_finish_on_card(player, last_card_played):
+			print("TRICK FINISH RULE: %s cannot finish on trick card %s" % [
+				player.name, last_card_played.name
+			])
+			apply_penalty_to_player(player, 1)
+			return false
+
+		# Legal finish
+		return true
 
 	return false
 
@@ -306,6 +630,38 @@ func get_winner(players: Array[Player], game_data: Dictionary) -> Array[Player]:
 		if not player.has_cards():
 			winners.append(player)
 	return winners
+
+## Get visual representation of current top card state
+func get_top_card_display_info() -> Dictionary:
+	var top_card = get_active_top_card()
+	if not top_card:
+		return {}
+
+	var info = {
+		"original_name": top_card.name,
+		"original_suit": top_card.suit,
+		"original_rank": top_card.rank,
+		"effective_suit": get_effective_suit(),
+		"effective_rank": get_effective_rank(),
+		"is_mirrored": is_top_card_mirrored,
+		"has_chosen_suit": (top_card.rank == 1 && chosen_suit != Card.Suit.NONE)
+	}
+
+	# Create display name based on state
+	if is_top_card_mirrored:
+		var rank_name = _get_rank_name(mirrored_rank)
+		var suit_symbol = _get_suit_symbol(mirrored_suit)
+		info["display_name"] = "%s%s (mirrored by 7)" % [rank_name, suit_symbol]
+		info["display_description"] = "7 mirroring %s%s" % [rank_name, suit_symbol]
+	elif top_card.rank == 1 && chosen_suit != Card.Suit.NONE:
+		var suit_symbol = _get_suit_symbol(chosen_suit)
+		info["display_name"] = "A%s (chosen suit)" % suit_symbol
+		info["display_description"] = "Ace choosing %s" % suit_symbol
+	else:
+		info["display_name"] = top_card.name
+		info["display_description"] = top_card.name
+
+	return info
 
 var main_deck: Deck  # Reference to main deck for drawing cards
 
@@ -429,3 +785,195 @@ func set_players(players: Array[Player]) -> void:
 ## Get all players (helper for winner checking)
 func get_all_players() -> Array[Player]:
 	return all_players
+
+## Calculate next player considering direction, skips, and multiple turns
+func get_next_player(current_player: Player, all_players: Array[Player]) -> Player:
+	if all_players.is_empty():
+		return null
+
+	var current_index = all_players.find(current_player)
+	if current_index == -1:
+		push_error("Current player not found in player list")
+		return null
+
+	var player_count = all_players.size()
+	var next_index = current_index
+
+	# Handle Jacks (skip calculation)
+	var jacks_played = _count_consecutive_jacks_on_top()
+	var players_to_skip = jacks_played
+
+	# Handle 8s (direction and extra turns)
+	var eights_played = _count_consecutive_eights_on_top()
+	var extra_turns = 0
+
+	if eights_played > 0:
+		# Odd number of 8s = direction change + normal progression
+		# Even number of 8s = same player gets another turn
+		if eights_played % 2 == 0:
+			# Even 8s = same player continues
+			extra_turns = 1
+		# Direction already handled in _handle_eight()
+
+	# If same player gets another turn, return current player
+	if extra_turns > 0:
+		return current_player
+
+	# Calculate next player index with skips and direction
+	var step = 1 if turn_direction == TurnDirection.LEFT else -1
+	next_index = (current_index + step * (1 + players_to_skip)) % player_count
+
+	# Handle negative indices for RIGHT direction
+	if next_index < 0:
+		next_index += player_count
+
+	return all_players[next_index]
+
+## Count consecutive Jacks on top of played stack
+func _count_consecutive_jacks_on_top() -> int:
+	var count = 0
+	for i in range(played_cards_stack.size() - 1, -1, -1):
+		var card = played_cards_stack[i]
+		if card && card.rank == 11:  # Jack
+			count += 1
+		else:
+			break
+	return count
+
+## Count consecutive 8s on top of played stack
+func _count_consecutive_eights_on_top() -> int:
+	var count = 0
+	for i in range(played_cards_stack.size() - 1, -1, -1):
+		var card = played_cards_stack[i]
+		if card && card.rank == 8:  # 8
+			count += 1
+		else:
+			break
+	return count
+
+## Enhanced turn processing with proper state management
+func process_turn_transition(current_player: Player) -> Dictionary:
+	var result = {
+		"next_player": null,
+		"penalties_applied": false,
+		"turn_ended": false,
+		"game_phase_changed": false
+	}
+
+	# First, handle any pending penalties based on current phase
+	match current_phase:
+		GamePhase.ACTIVE_TWOS:
+			result = _process_active_twos_transition(current_player, result)
+		GamePhase.ACTIVE_FIVE_HEARTS:
+			result = _process_five_hearts_transition(current_player, result)
+		GamePhase.ACTIVE_RUN:
+			result = _process_run_transition(current_player, result)
+		_:
+			# Normal phase - just calculate next player
+			result.next_player = get_next_player(current_player, all_players)
+			result.turn_ended = true
+
+	return result
+
+## Process transition during active 2s phase
+func _process_active_twos_transition(current_player: Player, result: Dictionary) -> Dictionary:
+	var next_player = get_next_player(current_player, all_players)
+
+	if not next_player:
+		result.next_player = current_player
+		return result
+
+	# Check if next player can counter with a 2
+	var valid_twos = []
+	for card in next_player.hand.cards:
+		if card && card.rank == 2:
+			valid_twos.append(card)
+
+	# If no 2s available, apply penalty and end phase
+	if valid_twos.is_empty():
+		if apply_penalty_to_player(next_player, active_penalty):
+			result.penalties_applied = true
+			current_phase = GamePhase.NORMAL
+			active_penalty = 0
+			result.game_phase_changed = true
+
+			# After penalty, continue to next player
+			result.next_player = get_next_player(next_player, all_players)
+		else:
+			push_error("Failed to apply penalty")
+			result.next_player = next_player
+	else:
+		# Next player has 2s available, they must choose
+		result.next_player = next_player
+
+	result.turn_ended = true
+	return result
+
+## Process transition during 5♥ phase
+func _process_five_hearts_transition(current_player: Player, result: Dictionary) -> Dictionary:
+	var next_player = get_next_player(current_player, all_players)
+
+	if not next_player:
+		result.next_player = current_player
+		return result
+
+	# Check if next player has 2♥ to counter
+	var has_two_hearts = false
+	for card in next_player.hand.cards:
+		if card && _is_two_of_hearts(card):
+			has_two_hearts = true
+			break
+
+	# If no 2♥, apply penalty and end phase
+	if not has_two_hearts:
+		if apply_penalty_to_player(next_player, active_penalty):
+			result.penalties_applied = true
+			current_phase = GamePhase.NORMAL
+			active_penalty = 0
+			result.game_phase_changed = true
+
+			# After penalty, continue to next player
+			result.next_player = get_next_player(next_player, all_players)
+		else:
+			push_error("Failed to apply 5♥ penalty")
+			result.next_player = next_player
+	else:
+		# Next player has 2♥ available
+		result.next_player = next_player
+
+	result.turn_ended = true
+	return result
+
+## Process transition during active run
+func _process_run_transition(current_player: Player, result: Dictionary) -> Dictionary:
+	var next_player = get_next_player(current_player, all_players)
+
+	if not next_player:
+		result.next_player = current_player
+		return result
+
+	# Check if next player can continue the run
+	var valid_run_cards = []
+	for card in next_player.hand.cards:
+		if card && _is_valid_during_run(card):
+			valid_run_cards.append(card)
+
+	# If no valid run cards, apply run penalty and end run
+	if valid_run_cards.is_empty():
+		var penalty_amount = run_target_rank
+		if apply_penalty_to_player(next_player, penalty_amount):
+			result.penalties_applied = true
+			_end_run(false)
+			result.game_phase_changed = true
+
+			# After penalty, continue to next player
+			result.next_player = get_next_player(next_player, all_players)
+		else:
+			push_error("Failed to apply run penalty")
+			result.next_player = next_player
+	else:
+		# Next player can continue run
+		result.next_player = next_player
+
+	result.turn_ended = true
+	return result
