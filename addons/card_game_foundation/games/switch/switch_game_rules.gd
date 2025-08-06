@@ -49,6 +49,9 @@ func get_active_top_card() -> Card:
 
 ## Check if a move is valid
 func is_valid_move(player: Player, card: Card, game_data: Dictionary) -> bool:
+	if not player or not card:
+		return false
+
 	if not player.has_cards() or not player.hand.has_card(card):
 		return false
 
@@ -104,6 +107,10 @@ func _is_valid_during_five_hearts(card: Card) -> bool:
 
 ## Apply a move and update game state
 func apply_move(player: Player, card: Card, game_data: Dictionary) -> Dictionary:
+	if not player or not card:
+		push_error("Invalid player or card in apply_move")
+		return game_data
+
 	played_cards_stack.append(card)
 
 	# Handle card effects
@@ -254,7 +261,7 @@ func get_turn_order(players: Array[Player], game_data: Dictionary) -> Array[Play
 func is_game_over(game_data: Dictionary) -> bool:
 	# Game ends when a player has no cards and didn't finish on a trick card
 	for player in get_all_players():
-		if not player.has_cards():
+		if player and not player.has_cards():
 			var last_card = player.get_last_played_card()
 			# Can't finish on trick card during active run
 			if current_phase == GamePhase.ACTIVE_RUN and last_card:
