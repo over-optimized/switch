@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://bu8f61wdyf1k2"]
 
-[ext_resource type="Script" uid="uid://do3h12kfwkabm" path="res://scripts/test_switch_game.gd" id="1_tyrgo"]
+[ext_resource type="Script" uid="uid://do3h12kfwkabm" path="res://games/switch/scripts/test_switch_game.gd" id="1_tyrgo"]
 
 [node name="SwitchGameTest" type="Node"]
 script = ExtResource("1_tyrgo")

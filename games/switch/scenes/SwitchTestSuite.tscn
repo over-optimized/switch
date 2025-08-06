@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://cx80c6h4tu6ed"]
 
-[ext_resource type="Script" uid="uid://e1eqqvjxpowa" path="res://scripts/switch_test_suite.gd" id="1_test_suite"]
+[ext_resource type="Script" uid="uid://e1eqqvjxpowa" path="res://games/switch/scripts/switch_test_suite.gd" id="1_test_suite"]
 
 [node name="SwitchTestSuite" type="Node"]
 script = ExtResource("1_test_suite")
