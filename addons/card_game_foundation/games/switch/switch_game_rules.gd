@@ -21,26 +21,23 @@ signal run_started(starting_rank: int)
 signal run_ended(successful: bool)
 signal direction_changed(new_direction: TurnDirection)
 
-func _init():
-	super()
-
 ## Setup the game with Switch-specific rules
 func setup_game(players: Array[Player], deck: Deck) -> void:
 	# Deal cards based on player count
 	var cards_per_player = 7 if players.size() <= 3 else 5
-	
+
 	deck.shuffle()
-	
+
 	# Deal cards to players
 	for player in players:
 		var cards_to_deal = deck.draw_cards(cards_per_player)
 		player.deal_cards(cards_to_deal)
-	
+
 	# Start played cards stack with first card
 	var first_card = deck.draw_card()
 	if first_card:
 		played_cards_stack.append(first_card)
-		
+
 		# Handle starting with trick card
 		_handle_starting_card(first_card)
 
@@ -54,11 +51,11 @@ func get_active_top_card() -> Card:
 func is_valid_move(player: Player, card: Card, game_data: Dictionary) -> bool:
 	if not player.has_cards() or not player.hand.has_card(card):
 		return false
-	
+
 	var top_card = get_active_top_card()
 	if not top_card:
 		return true  # First card is always valid
-	
+
 	return _is_card_playable(card, top_card)
 
 ## Check if a specific card can be played on the current top card
@@ -72,7 +69,7 @@ func _is_card_playable(card: Card, top_card: Card) -> bool:
 			return _is_valid_during_run(card)
 		GamePhase.ACTIVE_FIVE_HEARTS:
 			return _is_valid_during_five_hearts(card)
-	
+
 	return false
 
 ## Normal play validation
@@ -80,11 +77,11 @@ func _is_valid_normal_play(card: Card, top_card: Card) -> bool:
 	# Universal cards (can be played on anything when not active trick)
 	if _is_universal_card(card):
 		return true
-	
+
 	# Special case: 5♥ can be played on any 5 or any ♥
 	if _is_five_of_hearts(card):
 		return top_card.rank == 5 or top_card.suit == Card.Suit.HEARTS
-	
+
 	# Normal matching: suit or rank
 	return card.matches_suit(top_card) or card.matches_rank(top_card)
 
@@ -108,14 +105,14 @@ func _is_valid_during_five_hearts(card: Card) -> bool:
 ## Apply a move and update game state
 func apply_move(player: Player, card: Card, game_data: Dictionary) -> Dictionary:
 	played_cards_stack.append(card)
-	
+
 	# Handle card effects
 	_handle_card_effect(card, player)
-	
+
 	# Update game data
 	game_data["last_played_card"] = card
 	game_data["last_player"] = player
-	
+
 	return game_data
 
 ## Handle special card effects
@@ -124,7 +121,7 @@ func _handle_card_effect(card: Card, player: Player) -> void:
 	if current_phase == GamePhase.ACTIVE_RUN:
 		_handle_run_card(card, player)
 		return
-	
+
 	match card.rank:
 		1:  # Ace
 			_handle_ace(card, player)
@@ -206,7 +203,7 @@ func _handle_run_card(card: Card, player: Player) -> void:
 	elif card.rank == run_target_rank + 1:
 		# Next rank - advance run
 		run_target_rank = card.rank
-		
+
 		# Check if run has ended (reached Ace)
 		if card.rank == 1:  # Ace ends the run
 			_end_run(true)
@@ -234,23 +231,23 @@ func choose_suit(suit: Card.Suit) -> void:
 func get_valid_moves(player: Player, game_data: Dictionary) -> Array[Card]:
 	var valid_moves: Array[Card] = []
 	var top_card = get_active_top_card()
-	
+
 	if not top_card:
 		return player.hand.cards.duplicate()  # All cards valid for first play
-	
+
 	for card in player.hand.cards:
 		if _is_card_playable(card, top_card):
 			valid_moves.append(card)
-	
+
 	return valid_moves
 
 ## Get turn order considering direction and skips
 func get_turn_order(players: Array[Player], game_data: Dictionary) -> Array[Player]:
 	var ordered_players = players.duplicate()
-	
+
 	if turn_direction == TurnDirection.RIGHT:
 		ordered_players.reverse()
-	
+
 	return ordered_players
 
 ## Check if game is over
@@ -261,11 +258,11 @@ func is_game_over(game_data: Dictionary) -> bool:
 			var last_card = player.get_last_played_card()
 			# Can't finish on trick card during active run
 			if current_phase == GamePhase.ACTIVE_RUN and last_card:
-				# Force pickup of 1 card
-				_apply_penalty(player, 1)
+				# Force pickup of 1 card - use the corrected method name
+				apply_penalty_to_player(player, 1)
 				return false
 			return true
-	
+
 	return false
 
 ## Get winner(s)
@@ -282,20 +279,20 @@ var main_deck: Deck  # Reference to main deck for drawing cards
 func set_main_deck(deck: Deck) -> void:
 	main_deck = deck
 
-## Apply penalty to player
+## Apply penalty to player (corrected method name)
 func apply_penalty_to_player(player: Player, amount: int) -> bool:
 	if not main_deck:
 		push_error("No main deck available for penalty")
 		return false
-	
+
 	# Check if we need to reshuffle
 	if main_deck.size() < amount:
 		_reshuffle_deck()
-	
+
 	# Draw cards for penalty
 	var penalty_cards = main_deck.draw_cards(amount)
 	player.deal_cards(penalty_cards)
-	
+
 	penalty_applied.emit(player, amount)
 	return true
 
@@ -304,18 +301,18 @@ func _reshuffle_deck() -> void:
 	if played_cards_stack.size() <= 1:
 		push_warning("Cannot reshuffle - not enough played cards")
 		return
-	
+
 	# Keep top card, reshuffle the rest
 	var top_card = played_cards_stack.pop_back()
-	
+
 	# Move played cards back to main deck
 	for card in played_cards_stack:
 		main_deck.add_card(card)
-	
+
 	# Clear played cards and put top card back
 	played_cards_stack.clear()
 	played_cards_stack.append(top_card)
-	
+
 	# Shuffle the deck
 	main_deck.shuffle()
 	print("Deck reshuffled - %d cards available" % main_deck.size())
@@ -339,7 +336,7 @@ func _handle_starting_card(card: Card) -> void:
 ## Process end of turn penalties and phase transitions
 func process_turn_end(current_player: Player) -> Player:
 	var next_player = current_player  # May change based on penalties
-	
+
 	match current_phase:
 		GamePhase.ACTIVE_TWOS:
 			# Next player must either play 2 or take penalty
@@ -349,7 +346,7 @@ func process_turn_end(current_player: Player) -> Player:
 				apply_penalty_to_player(next_player, active_penalty)
 				current_phase = GamePhase.NORMAL
 				active_penalty = 0
-		
+
 		GamePhase.ACTIVE_FIVE_HEARTS:
 			# Next player must play 2♥ or take penalty
 			var valid_moves = get_valid_moves(next_player, {})
@@ -358,7 +355,7 @@ func process_turn_end(current_player: Player) -> Player:
 				apply_penalty_to_player(next_player, active_penalty)
 				current_phase = GamePhase.NORMAL
 				active_penalty = 0
-		
+
 		GamePhase.ACTIVE_RUN:
 			# Check if player can continue run
 			var valid_moves = get_valid_moves(next_player, {})
@@ -366,7 +363,7 @@ func process_turn_end(current_player: Player) -> Player:
 				# Can't continue run, take penalty
 				apply_penalty_to_player(next_player, run_target_rank)
 				_end_run(false)
-	
+
 	return next_player
 
 ## Utility functions
@@ -381,12 +378,12 @@ func validate_game_setup(players: Array[Player], deck: Deck) -> bool:
 	if players.size() < 2:
 		push_error("Switch requires at least 2 players")
 		return false
-	
+
 	var cards_needed = (7 if players.size() <= 3 else 5) * players.size() + 1
 	if deck.size() < cards_needed:
 		push_error("Not enough cards in deck for %d players" % players.size())
 		return false
-	
+
 	return true
 
 var all_players: Array[Player] = []  # Reference to all players
