@@ -33,6 +33,9 @@ The Switch card game implementation includes a solid foundation with core mechan
 - [ ] **Last card announcement** - "Switch!" announcement system
 - [ ] **Game end conditions** - Proper win/lose detection
 - [ ] **Score system** - Point calculation and tracking
+- [ ] **Classic mode** - Traditional Switch rules (no 5♥ or 7 mirror mechanics)
+- [ ] **Rule configuration** - Options for house rules and advanced features
+- [ ] **Game comparison documentation** - `switch_comparison.md` for similar games and competitors
 
 ## Priority Enhancements
 
@@ -210,3 +213,13 @@ The Switch card game implementation includes a solid foundation with core mechan
 - **Rule accuracy** - Matches official Switch rules
 - **Player engagement** - Fun and intuitive to play
 - **Code maintainability** - Easy to extend and modify
+
+## Planned Enhancements
+
+### Experience and Reputation Systems
+
+- [ ] **XP system** - Players earn experience points for wins, achievements, and gameplay milestones
+- [ ] **Rep gambling feature** - Optional mode where players wager Rep points before matches; impacts XP and Rep levels
+  - Rep/XP gambling only available in supported game modes (not all modes)
+  - Anti-abuse measures: limits, cooldowns, and opt-in settings
+- [ ] **Leaderboards and achievements** - Track XP, Rep, and unlockable content
