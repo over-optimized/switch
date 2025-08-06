@@ -1,0 +1,15 @@
+[gd_scene load_steps=2 format=3 uid="uid://cx80c6h4tu6ed"]
+
+[ext_resource type="Script" uid="uid://e1eqqvjxpowa" path="res://scripts/switch_test_suite.gd" id="1_test_suite"]
+
+[node name="SwitchTestSuite" type="Node"]
+script = ExtResource("1_test_suite")
+
+[node name="Instructions" type="Label" parent="."]
+offset_right = 800.0
+offset_bottom = 100.0
+text = "Switch Game Test Suite
+Check the console output for test results
+Press ESC to close"
+horizontal_alignment = 1
+vertical_alignment = 1

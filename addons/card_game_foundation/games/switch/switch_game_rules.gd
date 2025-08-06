@@ -23,23 +23,50 @@ signal direction_changed(new_direction: TurnDirection)
 
 ## Setup the game with Switch-specific rules
 func setup_game(players: Array[Player], deck: Deck) -> void:
+	print("=== SETUP_GAME DEBUG ===")
+	print("Players count: %d" % players.size())
+	print("Deck size before dealing: %d" % deck.size())
+
 	# Deal cards based on player count
 	var cards_per_player = 7 if players.size() <= 3 else 5
+	print("Cards per player: %d" % cards_per_player)
 
 	deck.shuffle()
+	print("Deck shuffled")
 
 	# Deal cards to players
-	for player in players:
+	for i in range(players.size()):
+		var player = players[i]
+		print("Dealing to player %s..." % player.name)
+
 		var cards_to_deal = deck.draw_cards(cards_per_player)
+		print("  Drew %d cards from deck" % cards_to_deal.size())
+		print("  Deck size after drawing: %d" % deck.size())
+
 		player.deal_cards(cards_to_deal)
+		print("  Player %s now has %d cards" % [player.name, player.get_hand_size()])
+
+		# Debug: Print the actual cards
+		var card_names = []
+		for card in player.hand.cards:
+			if card:
+				card_names.append(card.name)
+		print("  Cards: [%s]" % ", ".join(card_names))
 
 	# Start played cards stack with first card
+	print("Drawing first card for played stack...")
 	var first_card = deck.draw_card()
 	if first_card:
+		print("First card: %s" % first_card.name)
 		played_cards_stack.append(first_card)
 
 		# Handle starting with trick card
 		_handle_starting_card(first_card)
+	else:
+		print("ERROR: No first card available!")
+
+	print("Final deck size: %d" % deck.size())
+	print("=== SETUP_GAME DEBUG END ===\n")
 
 ## Get the active top card for matching
 func get_active_top_card() -> Card:
