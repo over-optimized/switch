@@ -2,34 +2,44 @@
 extends Control
 
 # References to UI elements
-@onready var main_menu = $MainMenu
-@onready var game_area = $GameArea
-@onready var player_hands = $GameArea/PlayerHands
-@onready var played_stack = $GameArea/PlayedStack
-@onready var deck = $GameArea/Deck
-@onready var turn_indicator = $GameArea/TurnIndicator
-@onready var play_button = $GameArea/ActionButtons/PlayButton
-@onready var draw_button = $GameArea/ActionButtons/DrawButton
-@onready var switch_button = $GameArea/ActionButtons/SwitchButton
+@onready var main_menu_scene = preload("res://games/switch/scenes/MainMenu.tscn")
+@onready var game_area_scene = preload("res://games/switch/scenes/GameArea.tscn")
+var main_menu: Panel
+var game_area: Panel
+var player_hands: Control
+var played_stack: Control
+var deck: Control
+var turn_indicator: Label
+var play_button: Button
+var draw_button: Button
+var switch_button: Button
 
 # Game logic references
 var game_manager: GameManager
 var game_rules: SwitchGameRules
-var players: Array = []
+var players: Array[Player] = []
 
 func _ready():
+	main_menu = main_menu_scene.instantiate()
+	add_child(main_menu)
+	game_area = game_area_scene.instantiate()
+	add_child(game_area)
 	main_menu.visible = true
 	game_area.visible = false
-	play_button.disabled = true
-	draw_button.disabled = true
-	switch_button.disabled = true
+	player_hands = game_area.get_node("PlayerHands")
+	played_stack = game_area.get_node("PlayedStack")
+	deck = game_area.get_node("Deck")
+	turn_indicator = game_area.get_node("TurnIndicator")
+	play_button = game_area.get_node("ActionButtons/PlayButton")
+	draw_button = game_area.get_node("ActionButtons/DrawButton")
+	switch_button = game_area.get_node("ActionButtons/SwitchButton")
 	_connect_menu_buttons()
 
 func _connect_menu_buttons():
-	$MainMenu/StartButton.pressed.connect(_on_start_game)
-	$MainMenu/SettingsButton.pressed.connect(_on_settings)
-	$MainMenu/RulesButton.pressed.connect(_on_view_rules)
-	$MainMenu/ExitButton.pressed.connect(_on_exit)
+	main_menu.get_node("StartButton").pressed.connect(_on_start_game)
+	main_menu.get_node("SettingsButton").pressed.connect(_on_settings)
+	main_menu.get_node("RulesButton").pressed.connect(_on_view_rules)
+	main_menu.get_node("ExitButton").pressed.connect(_on_exit)
 
 func _on_start_game():
 	main_menu.visible = false
